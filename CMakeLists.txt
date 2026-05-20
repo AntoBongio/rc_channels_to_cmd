@@ -1,78 +1,116 @@
-cmake_minimum_required(VERSION 3.8)
-project(crsf_joy_translator)
+cmake_minimum_required(VERSION 3.22)
+project(rc_channels_to_cmd)
 
-if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options(-Wall -Wextra -Wpedantic)
+# ──────────────────────────────────────────────────────────────────────────────
+# Compiler flags
+# ──────────────────────────────────────────────────────────────────────────────
+if(NOT CMAKE_CXX_STANDARD)
+  set(CMAKE_CXX_STANDARD 17)
 endif()
 
-# ---- Dependencies -----------------------------------------------------------
+add_compile_options(-Wall -Wextra -Wpedantic -Wconversion -Wdouble-promotion -Wfloat-equal -Wshadow)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Dependencies
+# ──────────────────────────────────────────────────────────────────────────────
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
-find_package(realtime_tools REQUIRED)
-find_package(geometry_msgs REQUIRED)
-find_package(std_msgs REQUIRED)
-find_package(sensor_msgs REQUIRED)
-
-# Custom packages (adjust package names to match your workspace)
-find_package(crsf_receiver_msg REQUIRED)          # CRSFChannels16
+find_package(loc_modes_srvs REQUIRED)
 find_package(emrs_locomotion_control REQUIRED)
 find_package(emrs_suspension_control REQUIRED)
-find_package(emrs_joy_translator REQUIRED)        # reuses Button class
-find_package(loc_modes_srvs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(crsf_receiver_msg REQUIRED)
+find_package(realtime_tools REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+ 
 
-# ---- Library (composable node) ----------------------------------------------
-add_library(${PROJECT_NAME}_component SHARED
-  src/crsf_joy_translator.cpp
-  src/crsf_component.cpp
+# ──────────────────────────────────────────────────────────────────────────────
+# Component shared library
+# ──────────────────────────────────────────────────────────────────────────────
+add_library(RcChannelsToCmd_Node SHARED src/rc_channels_to_cmd.cpp)
+target_include_directories(
+  RcChannelsToCmd_Node
+  PUBLIC
+  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+  "$<INSTALL_INTERFACE:include>"
 )
 
-target_include_directories(${PROJECT_NAME}_component PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
+target_link_libraries(
+  RcChannelsToCmd_Node
+  rclcpp::rclcpp
+  rclcpp_components::component
+  realtime_tools::realtime_tools
+  emrs_locomotion_control::emrs_locomotion_control_node
+  emrs_suspension_control::emrs_suspension_control_node
+  ${std_msgs_TARGETS}
+  ${geometry_msgs_TARGETS}
+  ${sensor_msgs_TARGETS}
+  ${std_msgs_TARGETS}
+  ${crsf_receiver_msg_TARGETS}
+  ${loc_modes_srvs_TARGETS}
 )
 
-ament_target_dependencies(${PROJECT_NAME}_component
-  rclcpp
-  rclcpp_components
-  realtime_tools
-  geometry_msgs
-  std_msgs
-  sensor_msgs
-  crsf_receiver_msg
-  emrs_locomotion_control
-  emrs_suspension_control
-  emrs_joy_translator
-  loc_modes_srvs
+add_library(RcChannelsToCmd SHARED src/component.cpp)
+target_include_directories(
+  RcChannelsToCmd
+  PRIVATE
+  include
+)
+target_link_libraries(
+  RcChannelsToCmd
+  RcChannelsToCmd_Node
+  rclcpp_components::component
 )
 
 rclcpp_components_register_node(
-  ${PROJECT_NAME}_component
-  PLUGIN "joystick::CRSFJoyTranslator"
-  EXECUTABLE ${PROJECT_NAME}_node
+  RcChannelsToCmd
+  PLUGIN "rc_channels_to_cmd::RcChannelsToCmd"
+  EXECUTABLE RcChannelsToCmdExecutable
 )
 
-# ---- Install ----------------------------------------------------------------
-install(
-  TARGETS ${PROJECT_NAME}_component
+# ──────────────────────────────────────────────────────────────────────────────
+# Install
+# ──────────────────────────────────────────────────────────────────────────────
+install(TARGETS RcChannelsToCmd_Node RcChannelsToCmd
+  EXPORT export_${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
-  RUNTIME DESTINATION lib/${PROJECT_NAME}
+  RUNTIME DESTINATION bin
+  INCLUDES DESTINATION include)
+
+install(DIRECTORY include/ DESTINATION include)
+
+install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
+
+install(DIRECTORY params DESTINATION share/${PROJECT_NAME})
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Export
+# ──────────────────────────────────────────────────────────────────────────────
+ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
+
+ament_export_dependencies(
+  rclcpp
+  rclcpp_components
+  realtime_tools
+  std_msgs
+  sensor_msgs
+  geometry_msgs
+  crsf_receiver_msg
+  loc_modes_srvs
+  emrs_locomotion_control
+  emrs_suspension_control
 )
 
-install(
-  DIRECTORY include/
-  DESTINATION include
-)
-
-install(
-  DIRECTORY config/
-  DESTINATION share/${PROJECT_NAME}/config
-)
-
-install(
-  DIRECTORY launch/
-  DESTINATION share/${PROJECT_NAME}/launch
-)
+# ──────────────────────────────────────────────────────────────────────────────
+# Testing
+# ──────────────────────────────────────────────────────────────────────────────
+if(BUILD_TESTING)
+  find_package(ament_lint_auto REQUIRED)
+  ament_lint_auto_find_test_dependencies()
+endif()
 
 ament_package()

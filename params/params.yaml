@@ -1,0 +1,61 @@
+rc_channels_to_cmd:
+  ros__parameters:
+    input_topic: "TODO"
+    channels:
+      roll: 1       # Right stick - horizontal axis
+      pitch: 2      # Right stick - vertical axis
+      fwd: 3        # Left stick - vertical axis
+      yaw: 4        # Left stick - horizontal axis
+      arm: 5        # SE
+      mode: 6       # 1-2-3-4-5-6 LEDs
+  
+    deadband:
+      roll: 0.01
+      pitch: 0.01
+      fwd: 0.01
+      yaw: 0.01
+
+    scale:
+      roll: 1.0
+      pitch: 1.0
+      fwd: 1.0
+      yaw: 1.0
+
+    # Calibrated to GX12 6-pos switch actual output values:
+    # pos 1=172, pos 2=500, pos 3=828, pos 4=1156, pos 5=1484, pos 6=1812
+    # Each lower threshold is the midpoint between adjacent switch positions.
+    #
+    #   Position 1 → IDLE                      raw [ 172 …  335]
+    #   Position 2 → CRABBING                  raw [ 336 …  663]
+    #   Position 3 → TURNINPLACE               raw [ 664 …  991]
+    #   Position 4 → ACKERMANN_FRONT           raw [ 992 … 1319]
+    #   Position 5 → DOUBLE_ACKERMANN          raw [1320 … 1647]
+    #   Position 6 → DOUBLE_ACKERMANN_SIDEWAYS raw [1648 … 1810]
+    mode_bands:
+      band_1_lower:  172
+      band_2_lower:  336
+      band_3_lower:  664
+      band_4_lower:  992
+      band_5_lower: 1320
+      band_6_lower: 1647
+
+    buttons:
+      lcm_mode_crab: 0 # Y
+      lcm_mode_ackermann: 1 # B
+      lcm_mode_alt_ackerman: 2 # X
+      lcm_mode_spot_turn: 3 # A
+
+    translation:
+      throttle_scale: 0.5 # initially 0.5
+      roll_scale: 0.55
+
+    spot_turning:
+      throttle_scale: 0.5
+
+    ackerman:
+      throttle_scale: 0.5 # initially 1
+      roll_scale: 0.20 # initially 0.25
+
+    ackerman_alt:
+      throttle_scale: 0.5 # initially 1
+      roll_scale: 0.08 # initially 0.1
