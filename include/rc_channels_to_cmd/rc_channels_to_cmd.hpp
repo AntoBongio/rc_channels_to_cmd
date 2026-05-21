@@ -138,10 +138,10 @@ private:
 
   // Per-mode throttle / roll scale factors (mirror joy_translator parameters).
   double translation_throttle_scale_;
-  double translation_roll_scale_;
+  double translation_yaw_scale_;
   double spot_turning_throttle_scale_;
   double ackerman_throttle_scale_;
-  double ackerman_roll_scale_;
+  double ackerman_yaw_scale_;
   double ackerman_alt_throttle_scale_;
   double ackerman_alt_roll_scale_;
 
@@ -178,11 +178,10 @@ private:
 
   /* ── Setup helpers ───────────────────────────────────────────────────────── */
 
-  // Divide [CRSF_MIN, CRSF_MAX] into NUM_MODE_POSITIONS equal bands.
-  void divide_mode_bands();
+  std::string mode_to_string(uint8_t mode);
 
   // Map a raw CH6 value to a 0-based position index [0, NUM_MODE_POSITIONS−1].
-  int classify_mode_position(int32_t raw) const;
+  uint8_t classify_mode_position(int32_t raw) const;
 
   // Map a 0-based position index to a LocomotionModeMsg uint8 constant.
   static uint8_t position_to_loco_mode(int position);
@@ -205,13 +204,10 @@ private:
   void handle_translation(double fwd, double roll, double pitch, double yaw);
 
   // TURNINPLACE: spot turn using rover geometry (X_, Y_, B_, C_, T_MIN_).
-  void handle_spot_turning(double fwd, double roll, double pitch, double yaw);
+  void handle_spot_turning(double roll, double pitch, double yaw);
 
-  // DOUBLE_ACKERMANN / ACKERMANN_FRONT: standard Ackermann scales.
+  // DOUBLE_ACKERMANN / ACKERMANN_FRONT / ACKERMANN_REAR: standard Ackermann scales.
   void handle_ackerman(double fwd, double roll, double pitch, double yaw);
-
-  // DOUBLE_ACKERMANN_SIDEWAYS: alternate Ackermann scales.
-  void handle_ackerman_alt(double fwd, double roll, double pitch, double yaw);
 
   /* ── Main callback ───────────────────────────────────────────────────────── */
   void on_crsf_msg(const CRSFChannels16::SharedPtr msg);

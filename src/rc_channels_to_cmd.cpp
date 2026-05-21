@@ -63,24 +63,48 @@ double RcChannelsToCmd::apply_throttle_curve(double t)
   return t * t * t;
 }
 
-/* ══════════════════════════════════════════════════════════════════════════════
- * position_to_loco_mode
- * ══════════════════════════════════════════════════════════════════════════════ */
+// /* ══════════════════════════════════════════════════════════════════════════════
+//  * position_to_loco_mode
+//  * ══════════════════════════════════════════════════════════════════════════════ */
 
-uint8_t RcChannelsToCmd::position_to_loco_mode(int position)
+// uint8_t RcChannelsToCmd::position_to_loco_mode(int position)
+// {
+//   // Maps 0-based CH6 position index to a LocomotionModeMsg constant.
+//   // The mapping is fixed and documented in the header; positions beyond
+//   // NUM_MODE_POSITIONS are clamped to IDLE for safety.
+//   // switch (position) {
+//   //   case 0: return LocomotionModeMsg::IDLE;
+//   //   case 1: return LocomotionModeMsg::DOUBLE_ACKERMANN;
+//   //   case 2: return LocomotionModeMsg::TURNINPLACE;
+//   //   case 3: return LocomotionModeMsg::CRABBING;
+//   //   case 4: return LocomotionModeMsg::ACKERMANN_FRONT;
+//   //   case 5: return LocomotionModeMsg::DOUBLE_ACKERMANN_SIDEWAYS;
+//   //   default:
+//   //     return LocomotionModeMsg::IDLE;
+//   // }
+//   switch (position) {
+//     case 0: return LocomotionModeMsg::IDLE;
+//     case 3: return LocomotionModeMsg::DOUBLE_ACKERMANN;
+//     case 6: return LocomotionModeMsg::TURNINPLACE;
+//     case 5: return LocomotionModeMsg::CRABBING;
+//     case 2: return LocomotionModeMsg::ACKERMANN_FRONT;
+//     case 7: return LocomotionModeMsg::ACKERMANN_REAR;
+//     default:
+//       return LocomotionModeMsg::IDLE;
+//   }
+// }
+
+std::string RcChannelsToCmd::mode_to_string(uint8_t mode)
 {
-  // Maps 0-based CH6 position index to a LocomotionModeMsg constant.
-  // The mapping is fixed and documented in the header; positions beyond
-  // NUM_MODE_POSITIONS are clamped to IDLE for safety.
-  switch (position) {
-    case 0: return LocomotionModeMsg::IDLE;
-    case 1: return LocomotionModeMsg::CRABBING;
-    case 2: return LocomotionModeMsg::TURNINPLACE;
-    case 3: return LocomotionModeMsg::ACKERMANN_FRONT;
-    case 4: return LocomotionModeMsg::DOUBLE_ACKERMANN;
-    case 5: return LocomotionModeMsg::DOUBLE_ACKERMANN_SIDEWAYS;
+  switch (mode) {
+    case LocomotionModeMsg::IDLE: return std::string("Idle");
+    case LocomotionModeMsg::DOUBLE_ACKERMANN: return std::string("Double Ackermann");
+    case LocomotionModeMsg::TURNINPLACE: return std::string("Turn in Place");
+    case LocomotionModeMsg::CRABBING: return std::string("Crabbing");
+    case LocomotionModeMsg::ACKERMANN_FRONT: return std::string("Ackermann Front");
+    case LocomotionModeMsg::ACKERMANN_REAR: return std::string("Ackermann Rear");
     default:
-      return LocomotionModeMsg::IDLE;
+      return std::string("Unknown");
   }
 }
 
@@ -130,18 +154,17 @@ RcChannelsToCmd::RcChannelsToCmd(const rclcpp::NodeOptions & options)
   C_     = declare_parameter<double>("C",     100.0);   // mm
   T_MIN_ = declare_parameter<double>("T_MIN", 1.22);    // rad
 
-  /* ── Per-mode scale factors (mirror joy_translator parameters) ───────────── */
+  /* ── Per-mode scale factors ───────────── */
   translation_throttle_scale_  = declare_parameter<double>("translation.throttle_scale",  0.5);
-  translation_roll_scale_      = declare_parameter<double>("translation.roll_scale",      0.55);
+  translation_yaw_scale_      = declare_parameter<double>("translation.yaw_scale",      0.55);
   spot_turning_throttle_scale_ = declare_parameter<double>("spot_turning.throttle_scale", 0.5);
   ackerman_throttle_scale_     = declare_parameter<double>("ackerman.throttle_scale",     0.5);
-  ackerman_roll_scale_         = declare_parameter<double>("ackerman.roll_scale",         0.20);
+  ackerman_yaw_scale_         = declare_parameter<double>("ackerman.roll_scale",         0.20);
   ackerman_alt_throttle_scale_ = declare_parameter<double>("ackerman_alt.throttle_scale", 0.5);
   ackerman_alt_roll_scale_     = declare_parameter<double>("ackerman_alt.roll_scale",     0.08);
 
   /* ── CH6 mode band boundaries ────────────────────────────────────────────── */
   // Compute equal-width defaults first, then allow YAML overrides.
-  divide_mode_bands();
   for (int i = 0; i < NUM_MODE_POSITIONS; ++i) {
     const std::string key = "mode_bands.band_" + std::to_string(i + 1) + "_lower";
     mode_band_lower_[i] = static_cast<int32_t>(
@@ -154,11 +177,11 @@ RcChannelsToCmd::RcChannelsToCmd(const rclcpp::NodeOptions & options)
 
   /* ── Publishers ──────────────────────────────────────────────────────────── */
   twist_pub_ = std::make_unique<realtime_tools::RealtimePublisher<geometry_msgs::msg::Twist>>(
-    create_publisher<geometry_msgs::msg::Twist>("cmd_vel", 10));
+    create_publisher<geometry_msgs::msg::Twist>("/uls/command/locomotion/cmd_vel", 10));
 
   /* ── Service clients ─────────────────────────────────────────────────────── */
-  loco_mode_client_ = create_client<LocomotionModeSrv>("set_locomotion_mode");
-  susp_mode_client_ = create_client<SuspensionModeSrv>("set_suspension_mode");
+  loco_mode_client_ = create_client<LocomotionModeSrv>("/uls/set_locomotion_mode");
+  susp_mode_client_ = create_client<SuspensionModeSrv>("/uls/set_suspension_mode");
 
   /* ── Subscription ────────────────────────────────────────────────────────── */
   crsf_sub_ = create_subscription<CRSFChannels16>(
@@ -175,54 +198,35 @@ RcChannelsToCmd::RcChannelsToCmd(const rclcpp::NodeOptions & options)
   RCLCPP_INFO(get_logger(),
     "  Switches — arm:CH%d (thr=%d)  mode:CH%d",
     ch_arm_+1, arm_threshold_, ch_mode_+1);
-  for (int i = 0; i < NUM_MODE_POSITIONS; ++i) {
-    const int32_t upper = (i < NUM_MODE_POSITIONS - 1)
-      ? mode_band_lower_[i + 1] - 1
-      : static_cast<int32_t>(CRSF_MAX);
-    RCLCPP_INFO(get_logger(),
-      "  CH6 pos %d → mode %d: raw [%d … %d]",
-      i + 1, i + 1, mode_band_lower_[i], upper);
-  }
 }
 
-/* ══════════════════════════════════════════════════════════════════════════════
- * divide_mode_bands
- * ══════════════════════════════════════════════════════════════════════════════ */
-void RcChannelsToCmd::divide_mode_bands()
-{
-  // The GX12 6-pos switch outputs these fixed raw CRSF values:
-  // pos 1=172, pos 2=500, pos 3=828, pos 4=1156, pos 5=1484, pos 6=1812
-  // Each band's lower threshold is set halfway between adjacent positions
-  // so any hardware rounding still lands cleanly in the correct band.
-  static constexpr std::array<int32_t, NUM_MODE_POSITIONS> switch_values = {
-    172, 500, 828, 1156, 1482, 1810
-  };
-
-  // Band 1 starts at the minimum possible raw value.
-  mode_band_lower_[0] = static_cast<int32_t>(CRSF_MIN);
-
-  // Each subsequent band starts halfway between the previous and current
-  // switch output value.
-  for (int i = 1; i < NUM_MODE_POSITIONS; ++i) {
-    mode_band_lower_[i] = (switch_values[i - 1] + switch_values[i]) / 2;
-  }
-}
 
 /* ══════════════════════════════════════════════════════════════════════════════
  * classify_mode_position
  * ══════════════════════════════════════════════════════════════════════════════ */
 
-int RcChannelsToCmd::classify_mode_position(int32_t raw) const
+uint8_t RcChannelsToCmd::classify_mode_position(int32_t raw) const
 {
   // Walk from the highest band downward.
   // Return the first band whose lower edge the raw value meets.
-  // Returns a 0-based position index in [0, NUM_MODE_POSITIONS−1].
+  int mode_selected = -1;
+
   for (int i = NUM_MODE_POSITIONS - 1; i >= 0; --i) {
     if (raw >= mode_band_lower_[i]) {
-      return i;
+      mode_selected = i;
+      break;
     }
   }
-  return 0;  // raw below even the first band lower edge → position 0
+  switch (mode_selected) {
+    case 0: return LocomotionModeMsg::IDLE;
+    case 1: return LocomotionModeMsg::DOUBLE_ACKERMANN;
+    case 2: return LocomotionModeMsg::TURNINPLACE;
+    case 3: return LocomotionModeMsg::CRABBING;
+    case 4: return LocomotionModeMsg::ACKERMANN_FRONT;
+    case 5: return LocomotionModeMsg::ACKERMANN_REAR;
+    default:
+      return LocomotionModeMsg::IDLE;
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -324,8 +328,7 @@ void RcChannelsToCmd::handle_translation(
   double fwd, double roll, double pitch, double yaw)
 {
   double throttle_x  = fwd * translation_throttle_scale_;
-  // double steer_angle = std::atan2(roll, std::abs(fwd)) * translation_roll_scale_;
-  double steer_angle = std::atan2(roll, pitch) * translation_roll_scale_;
+  double steer_angle = fwd > 0 ? -yaw * translation_yaw_scale_ : yaw * translation_yaw_scale_;
   if (twist_pub_->trylock()) {
     twist_pub_->msg_.linear.x  = apply_throttle_curve(throttle_x);
     twist_pub_->msg_.linear.y  = 0.0;
@@ -337,12 +340,13 @@ void RcChannelsToCmd::handle_translation(
   }
 }
 
+
 // TURNINPLACE ─────────────────────────────────────────────────────────────────
 // Spot turn: yaw rate on linear.z, per-axis geometry on angular.y / angular.z.
 void RcChannelsToCmd::handle_spot_turning(
-  double fwd, double roll, double pitch, double yaw)
+  double roll, double pitch, double yaw)
 {
-  double throttle_yaw = yaw * spot_turning_throttle_scale_;
+  double throttle_yaw = -yaw * spot_turning_throttle_scale_;
   if (twist_pub_->trylock()) {
     twist_pub_->msg_.linear.x  = 0.0;
     twist_pub_->msg_.linear.y  = 0.0;
@@ -356,32 +360,14 @@ void RcChannelsToCmd::handle_spot_turning(
   }
 }
 
-// DOUBLE_ACKERMANN / ACKERMANN_FRONT ──────────────────────────────────────────
+// DOUBLE_ACKERMANN / ACKERMANN_FRONT / ACKERMANN_REAR ─────────────────────────
 // Standard Ackermann: throttle on linear.x, atan2 steering on angular.z.
 void RcChannelsToCmd::handle_ackerman(
-  double fwd, double roll, double /*pitch*/, double /*yaw*/)
+  double fwd, double roll, double pitch, double yaw)
 {
   double throttle_x  = fwd * ackerman_throttle_scale_;
-  double steer_angle = std::atan2(roll, std::abs(fwd)) * ackerman_roll_scale_;
-  if (twist_pub_->trylock()) {
-    twist_pub_->msg_.linear.x  = apply_throttle_curve(throttle_x);
-    twist_pub_->msg_.linear.y  = 0.0;
-    twist_pub_->msg_.linear.z  = 0.0;
-    twist_pub_->msg_.angular.x = 0.0;
-    twist_pub_->msg_.angular.y = 0.0;
-    twist_pub_->msg_.angular.z = steer_angle;
-    twist_pub_->unlockAndPublish();
-  }
-}
-
-// DOUBLE_ACKERMANN_SIDEWAYS ───────────────────────────────────────────────────
-// Alternate Ackermann: same shape but different scale factors.
-// Mirrors joy_translator::handle_ackerman_alt().
-void RcChannelsToCmd::handle_ackerman_alt(
-  double fwd, double roll, double /*pitch*/, double /*yaw*/)
-{
-  double throttle_x  = fwd * ackerman_alt_throttle_scale_;
-  double steer_angle = std::atan2(roll, std::abs(fwd)) * ackerman_alt_roll_scale_;
+  // double steer_angle = std::atan2(roll, std::abs(pitch)) * ackerman_roll_scale_;
+  double steer_angle = -yaw * translation_yaw_scale_;
   if (twist_pub_->trylock()) {
     twist_pub_->msg_.linear.x  = apply_throttle_curve(throttle_x);
     twist_pub_->msg_.linear.y  = 0.0;
@@ -420,19 +406,25 @@ void RcChannelsToCmd::on_crsf_msg(const CRSFChannels16::SharedPtr msg)
   }
 
   if (!armed_ && now_armed && arm_seen_low_) {
-    RCLCPP_INFO(get_logger(), "ARMED");
+    RCLCPP_WARN_THROTTLE(get_logger(),*this->get_clock(), 200, "ARMED");
   }
 
   if (armed_ && !now_armed) {
-    RCLCPP_WARN(get_logger(), "DISARMED — zeroing Twist");
+    RCLCPP_WARN_THROTTLE(get_logger(),*this->get_clock(), 200, "DISARMED — zeroing Twist");
     publish_zero_twist();
   }
 
   armed_ = now_armed && arm_seen_low_;
 
-  RCLCPP_INFO_THROTTLE(get_logger(), *this->get_clock(), 1000, "now_armed: %s", now_armed ? "True" : "False");
-  RCLCPP_INFO_THROTTLE(get_logger(), *this->get_clock(), 1000, "arm_seen_low_: %s", arm_seen_low_ ? "True" : "False");
-  RCLCPP_INFO_THROTTLE(get_logger(), *this->get_clock(), 1000, "armed_: %s", armed_ ? "True" : "False");
+  // TODO: Da rimuovere così da permettere di cambiare modalità mentre disarmed
+  if (!armed_) {
+    RCLCPP_INFO_THROTTLE(get_logger(), *this->get_clock(), 1000,"Not armed, publishing zero twist....");    
+    publish_zero_twist();
+    current_locomotion_mode_ = LocomotionModeMsg::IDLE;  // reset to safe default
+    send_loco_mode(current_locomotion_mode_);  // re-send current mode to ensure downstream nodes are in sync
+    return;
+  }
+
 
   /* ── 2. Mode selection (CH6) ─────────────────────────────────────────────
    *
@@ -440,44 +432,58 @@ void RcChannelsToCmd::on_crsf_msg(const CRSFChannels16::SharedPtr msg)
    * so the operator can pre-select a mode before arming.
    * Disarming does not reset the mode — CH6 is the sole owner of mode state.
    * ─────────────────────────────────────────────────────────────────────── */
-  const int position = classify_mode_position(ch[ch_mode_]);
-  // DEBUG
-  switch(position)
-  {
-    case 1:
-      RCLCPP_INFO_THROTTLE(get_logger(), *this->get_clock(), 1000, "Mode selected: IDLE");
-    case 2:
-      RCLCPP_INFO_THROTTLE(get_logger(), *this->get_clock(), 1000, "Mode selected: CRABBING");
-    case 3:
-      RCLCPP_INFO_THROTTLE(get_logger(), *this->get_clock(), 1000, "Mode selected: TURNINPLACE");
-    case 4:
-      RCLCPP_INFO_THROTTLE(get_logger(), *this->get_clock(), 1000, "Mode selected: ACKERMANN_FRONT");
-    case 5:
-      RCLCPP_INFO_THROTTLE(get_logger(), *this->get_clock(), 1000, "Mode selected: DOUBLE_ACKERMANN");
-    case 6:
-      RCLCPP_INFO_THROTTLE(get_logger(), *this->get_clock(), 1000, "Mode selected: DOUBLE_ACKERMANN_SIDEWAYS");
-  }
-  const uint8_t new_mode = position_to_loco_mode(position);
+  requested_locomotion_mode_ = classify_mode_position(ch[ch_mode_]);
 
-  if (new_mode != requested_locomotion_mode_) {
+
+  // RCLCPP_INFO_THROTTLE(get_logger(), *this->get_clock(), 1000,
+  //   "CH%d raw value: %d → locomotion mode: %s",
+  //   ch_mode_ + 1, ch[ch_mode_], mode_to_string(new_mode).c_str());
+
+  // // DEBUG
+  // switch(new_mode)
+  // {
+  //   case LocomotionModeMsg::IDLE:
+  //     RCLCPP_INFO_THROTTLE(get_logger(), *this->get_clock(), 5000, "Mode selected: IDLE");
+  //     break;
+  //   case LocomotionModeMsg::DOUBLE_ACKERMANN:
+  //     RCLCPP_INFO_THROTTLE(get_logger(), *this->get_clock(), 5000, "Mode selected: DOUBLE_ACKERMANN");
+  //     break;
+  //   case LocomotionModeMsg::TURNINPLACE:
+  //     RCLCPP_INFO_THROTTLE(get_logger(), *this->get_clock(), 5000, "Mode selected: TURNINPLACE");
+  //     break;
+  //   case LocomotionModeMsg::CRABBING:
+  //     RCLCPP_INFO_THROTTLE(get_logger(), *this->get_clock(), 5000, "Mode selected: CRABBING");
+  //     break;
+  //   case LocomotionModeMsg::ACKERMANN_FRONT:
+  //     RCLCPP_INFO_THROTTLE(get_logger(), *this->get_clock(), 5000, "Mode selected: ACKERMANN_FRONT");
+  //     break;
+  //   case LocomotionModeMsg::ACKERMANN_REAR:
+  //     RCLCPP_INFO_THROTTLE(get_logger(), *this->get_clock(), 5000, "Mode selected: ACKERMANN_REAR");
+  //     break;
+  //   default:
+  //     RCLCPP_INFO_THROTTLE(get_logger(), *this->get_clock(), 5000, "Mode selected: UNKNOWN");
+  //     break;
+  // }
+
+  if (requested_locomotion_mode_ != current_locomotion_mode_) {
     RCLCPP_INFO(get_logger(),
-      "CH6 position %d → requesting locomotion mode %d", position + 1, new_mode);
-    requested_locomotion_mode_ = new_mode;
+      "Requesting locomotion mode %s", mode_to_string(requested_locomotion_mode_).c_str());
   }
 
-  // send_loco_mode is idempotent (no-op if current == requested).
   send_loco_mode(requested_locomotion_mode_);
 
-  /* ── 3. Movement commands — only when armed ──────────────────────────────
-   *
-   * While disarmed we publish zero every cycle so downstream nodes never
-   * act on a stale non-zero command sitting in their subscriber queue.
-   * ─────────────────────────────────────────────────────────────────────── */
-  if (!armed_) {
-    RCLCPP_INFO_THROTTLE(get_logger(), *this->get_clock(), 1000,"Not armed, publishing zero twist....");    
-    publish_zero_twist();
-    return;
-  }
+  // send_loco_mode is idempotent (no-op if current == requested).
+
+  // /* ── 3. Movement commands — only when armed ──────────────────────────────
+  //  *
+  //  * While disarmed we publish zero every cycle so downstream nodes never
+  //  * act on a stale non-zero command sitting in their subscriber queue.
+  //  * ─────────────────────────────────────────────────────────────────────── */
+  // if (!armed_) {
+  //   RCLCPP_INFO_THROTTLE(get_logger(), *this->get_clock(), 1000,"Not armed, publishing zero twist....");    
+  //   publish_zero_twist();
+  //   return;
+  // }
 
   /* Normalise raw CRSF → [−1.0, +1.0], then apply deadband. */
   double roll  = apply_deadband(normalise(ch[ch_roll_]),  deadband_roll_);
@@ -501,23 +507,17 @@ void RcChannelsToCmd::on_crsf_msg(const CRSFChannels16::SharedPtr msg)
    * kinematics always match the mode the hardware is actually executing.
    * ─────────────────────────────────────────────────────────────────────── */
   switch (current_locomotion_mode_) {
+    case LocomotionModeMsg::DOUBLE_ACKERMANN:
+    case LocomotionModeMsg::ACKERMANN_FRONT:
+    case LocomotionModeMsg::ACKERMANN_REAR:
+      handle_ackerman(fwd, roll, pitch, yaw);
+      break;
+      case LocomotionModeMsg::TURNINPLACE:
+        handle_spot_turning(roll, pitch, yaw);
+        break;
     case LocomotionModeMsg::CRABBING:
       handle_translation(fwd, roll, pitch, yaw);
       break;
-
-    case LocomotionModeMsg::TURNINPLACE:
-      handle_spot_turning(fwd, roll, pitch, yaw);
-      break;
-
-    case LocomotionModeMsg::ACKERMANN_FRONT:
-    case LocomotionModeMsg::DOUBLE_ACKERMANN:
-      handle_ackerman(fwd, roll, pitch, yaw);
-      break;
-
-    case LocomotionModeMsg::DOUBLE_ACKERMANN_SIDEWAYS:
-      handle_ackerman_alt(fwd, roll, pitch, yaw);
-      break;
-
     case LocomotionModeMsg::IDLE:
     default:
       RCLCPP_INFO_STREAM_THROTTLE(get_logger(), *this->get_clock(), 1000,

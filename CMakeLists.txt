@@ -31,15 +31,8 @@ find_package(rosidl_default_generators REQUIRED)
 # Component shared library
 # ──────────────────────────────────────────────────────────────────────────────
 add_library(RcChannelsToCmd_Node SHARED src/rc_channels_to_cmd.cpp)
-target_include_directories(
-  RcChannelsToCmd_Node
-  PUBLIC
-  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
-  "$<INSTALL_INTERFACE:include>"
-)
 
-target_link_libraries(
-  RcChannelsToCmd_Node
+target_link_libraries(RcChannelsToCmd_Node PUBLIC
   rclcpp::rclcpp
   rclcpp_components::component
   realtime_tools::realtime_tools
@@ -52,6 +45,14 @@ target_link_libraries(
   ${crsf_receiver_msg_TARGETS}
   ${loc_modes_srvs_TARGETS}
 )
+
+target_include_directories(
+  RcChannelsToCmd_Node
+  PUBLIC
+  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+  "$<INSTALL_INTERFACE:include>"
+)
+
 
 add_library(RcChannelsToCmd SHARED src/component.cpp)
 target_include_directories(
