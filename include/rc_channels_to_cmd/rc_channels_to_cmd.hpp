@@ -183,13 +183,10 @@ private:
   // Map a raw CH6 value to a 0-based position index [0, NUM_MODE_POSITIONS−1].
   uint8_t classify_mode_position(int32_t raw) const;
 
-  // Map a 0-based position index to a LocomotionModeMsg uint8 constant.
-  static uint8_t position_to_loco_mode(int position);
-
   /* ── Runtime helpers ─────────────────────────────────────────────────────── */
 
-  // Publish a zero Twist (called immediately on disarm and while IDLE).
-  void publish_zero_twist();
+  // // Publish a zero Twist (called immediately on disarm and while IDLE).
+  // void publish_zero_twist();
 
   // Send locomotion mode service request if mode has changed.
   // Twist dispatch uses current_locomotion_mode_ (confirmed by service callback).
@@ -199,6 +196,9 @@ private:
   void send_susp_mode(uint8_t mode);
 
   /* ── Per-mode Twist handlers (mirror joy_translator handle_* methods) ────── */
+
+  // IDLE: zero Twist, no service calls.
+  void handle_idle();
 
   // CRABBING: lateral translation with atan2 steering.
   void handle_translation(double fwd, double roll, double pitch, double yaw);

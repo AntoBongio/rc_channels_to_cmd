@@ -63,37 +63,6 @@ double RcChannelsToCmd::apply_throttle_curve(double t)
   return t * t * t;
 }
 
-// /* ══════════════════════════════════════════════════════════════════════════════
-//  * position_to_loco_mode
-//  * ══════════════════════════════════════════════════════════════════════════════ */
-
-// uint8_t RcChannelsToCmd::position_to_loco_mode(int position)
-// {
-//   // Maps 0-based CH6 position index to a LocomotionModeMsg constant.
-//   // The mapping is fixed and documented in the header; positions beyond
-//   // NUM_MODE_POSITIONS are clamped to IDLE for safety.
-//   // switch (position) {
-//   //   case 0: return LocomotionModeMsg::IDLE;
-//   //   case 1: return LocomotionModeMsg::DOUBLE_ACKERMANN;
-//   //   case 2: return LocomotionModeMsg::TURNINPLACE;
-//   //   case 3: return LocomotionModeMsg::CRABBING;
-//   //   case 4: return LocomotionModeMsg::ACKERMANN_FRONT;
-//   //   case 5: return LocomotionModeMsg::DOUBLE_ACKERMANN_SIDEWAYS;
-//   //   default:
-//   //     return LocomotionModeMsg::IDLE;
-//   // }
-//   switch (position) {
-//     case 0: return LocomotionModeMsg::IDLE;
-//     case 3: return LocomotionModeMsg::DOUBLE_ACKERMANN;
-//     case 6: return LocomotionModeMsg::TURNINPLACE;
-//     case 5: return LocomotionModeMsg::CRABBING;
-//     case 2: return LocomotionModeMsg::ACKERMANN_FRONT;
-//     case 7: return LocomotionModeMsg::ACKERMANN_REAR;
-//     default:
-//       return LocomotionModeMsg::IDLE;
-//   }
-// }
-
 std::string RcChannelsToCmd::mode_to_string(uint8_t mode)
 {
   switch (mode) {
@@ -233,13 +202,13 @@ uint8_t RcChannelsToCmd::classify_mode_position(int32_t raw) const
  * publish_zero_twist
  * ══════════════════════════════════════════════════════════════════════════════ */
 
-void RcChannelsToCmd::publish_zero_twist()
-{
-  if (twist_pub_->trylock()) {
-    twist_pub_->msg_ = geometry_msgs::msg::Twist{};  // all fields = 0
-    twist_pub_->unlockAndPublish();
-  }
-}
+// void RcChannelsToCmd::publish_zero_twist()
+// {
+//   if (twist_pub_->trylock()) {
+//     twist_pub_->msg_ = geometry_msgs::msg::Twist{};  // all fields = 0
+//     twist_pub_->unlockAndPublish();
+//   }
+// }
 
 /* ══════════════════════════════════════════════════════════════════════════════
  * send_loco_mode
@@ -322,6 +291,16 @@ void RcChannelsToCmd::send_susp_mode(uint8_t mode)
  * Scale factors are applied inside each handler.
  * ══════════════════════════════════════════════════════════════════════════════ */
 
+void RcChannelsToCmd::handle_idle()
+{
+  RCLCPP_INFO_STREAM_THROTTLE(get_logger(), *this->get_clock(), 1000,
+    "Locomotion mode IDLE — no Twist published");
+  if (twist_pub_->trylock()) {
+    twist_pub_->msg_ = geometry_msgs::msg::Twist{};  // all fields = 0
+    twist_pub_->unlockAndPublish();
+  }
+}
+
 // CRABBING ────────────────────────────────────────────────────────────────────
 // Lateral translation: throttle on linear.x, atan2 steering on angular.z.
 void RcChannelsToCmd::handle_translation(
@@ -352,10 +331,8 @@ void RcChannelsToCmd::handle_spot_turning(
     twist_pub_->msg_.linear.y  = 0.0;
     twist_pub_->msg_.linear.z  = apply_throttle_curve(throttle_yaw);
     twist_pub_->msg_.angular.x = 0.0;
-    twist_pub_->msg_.angular.y =
-      roll  * (Y_ + B_ * std::cos(T_MIN_) + C_) * 1e-3;
-    twist_pub_->msg_.angular.z =
-      pitch * X_ * 1e-3;
+    twist_pub_->msg_.angular.y = 0.0;
+    twist_pub_->msg_.angular.z = 0.0;
     twist_pub_->unlockAndPublish();
   }
 }
@@ -410,16 +387,13 @@ void RcChannelsToCmd::on_crsf_msg(const CRSFChannels16::SharedPtr msg)
   }
 
   if (armed_ && !now_armed) {
-    RCLCPP_WARN_THROTTLE(get_logger(),*this->get_clock(), 200, "DISARMED — zeroing Twist");
-    publish_zero_twist();
+    RCLCPP_WARN_THROTTLE(get_logger(),*this->get_clock(), 200, "DISARMED — switching to IDLE mode and publishing zero twist");
   }
 
   armed_ = now_armed && arm_seen_low_;
 
   // TODO: Da rimuovere così da permettere di cambiare modalità mentre disarmed
   if (!armed_) {
-    RCLCPP_INFO_THROTTLE(get_logger(), *this->get_clock(), 1000,"Not armed, publishing zero twist....");    
-    publish_zero_twist();
     current_locomotion_mode_ = LocomotionModeMsg::IDLE;  // reset to safe default
     send_loco_mode(current_locomotion_mode_);  // re-send current mode to ensure downstream nodes are in sync
     return;
@@ -520,9 +494,7 @@ void RcChannelsToCmd::on_crsf_msg(const CRSFChannels16::SharedPtr msg)
       break;
     case LocomotionModeMsg::IDLE:
     default:
-      RCLCPP_INFO_STREAM_THROTTLE(get_logger(), *this->get_clock(), 1000,
-        "Locomotion mode IDLE — no Twist published");
-      publish_zero_twist();
+      handle_idle();
       break;
   }
 }
